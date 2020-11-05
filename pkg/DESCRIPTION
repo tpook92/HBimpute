@@ -1,7 +1,7 @@
 Package: HBimpute
 Type: Package
 Title: HaploBlocker imputation
-Version: 0.2.1
+Version: 0.2.19
 Author: Torsten Pook
 Maintainer: Torsten Pook <torsten.pook@uni-goettingen.de>
 Description: Imputation of sequence data
@@ -9,5 +9,5 @@ Depends: R (>= 3.0), HaploBlocker (>= 1.5.0), RandomFieldsUtils (>= 0.3.54)
 Suggests: vcfR
 License: GPL ( >= 3)
 LazyData: TRUE
-RoxygenNote: 6.1.1
+RoxygenNote: 7.1.1
 Date: 2018-10-10
