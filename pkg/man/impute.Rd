@@ -23,7 +23,7 @@ impute(
   max_hetero = 0.01,
   hetero_is_missing = TRUE,
   remove_del = FALSE,
-  beagle_core = 10,
+  beagle_core = 1,
   path_beaglejar = "beagle5.jar",
   estimate_del = NULL,
   estimate_cnv = NULL,
@@ -68,7 +68,7 @@ impute(
 
 \item{log}{Path of a potential log file to be written (default: NULL will take vcf-file name)}
 
-\item{chromo}{Manually provide a vector of chromosomes to perform imputation for}
+\item{chromo}{Manually provide a vector of chromosomes to perform imputation for (default: Process all available chromosomes)}
 
 \item{out}{Path of the output file}
 
@@ -82,7 +82,7 @@ impute(
 
 \item{posi}{physical marker positions}
 
-\item{hetero}{Set TRUE when imputing a heterozygous organism (WORK IN PROGRESS)}
+\item{hetero}{Set TRUE when imputing a heterozygous organism. The two haplotype of a individual are then processed separately}
 
 \item{hb_data}{Dataset to derive the HB-library on (if not provided use dataset itself)}
 
@@ -98,7 +98,7 @@ impute(
 
 \item{remove_del}{Set TRUE to set estimated deletions to NA calls}
 
-\item{beagle_core}{Number of threats using in BEAGLE 5 (default: 10)}
+\item{beagle_core}{Number of threats using in BEAGLE 5 (default: 1)}
 
 \item{path_beaglejar}{Directory of the BEAGLE jar (default: "beagle5.jar")}
 
@@ -161,6 +161,8 @@ impute(
 \item{sv_window}{sv_window}
 
 \item{hb_max}{Maximum number of marker to consider in the haplotype library}
+
+\item{snpname}{SNP IDss}
 }
 \description{
 Function to simulate a step in a breeding scheme

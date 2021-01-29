@@ -31,15 +31,15 @@ software for any purpose. It is provided solely "as is".
 #' Function to simulate a step in a breeding scheme
 #' @param vcf Path of the file to impute (alternatively provide geno, depth, allele, lines, posi manually)
 #' @param vcf_RData Path of an RData object to read instead of plain vcf-file
-#' @param chromo Manually provide a vector of chromosomes to perform imputation for
+#' @param chromo Manually provide a vector of chromosomes to perform imputation for (default: Process all available chromosomes)
 #' @param out Path of the output file
-#' @param hetero Set TRUE when imputing a heterozygous organism (WORK IN PROGRESS)
+#' @param hetero Set TRUE when imputing a heterozygous organism. The two haplotype of a individual are then processed separately
 #' @param hb_data Dataset to derive the HB-library on (if not provided use dataset itself)
 #' @param hb_map Map-file for hb_data
 #' @param max_hetero Only active if hetero=FALSE - remove marker with share of heterozygosity large max_hetero (default: 0.05)
 #' @param maf Applied maf-filter (default: 0)
 #' @param hetero_is_missing Only active if hetero=FALSE - If TRUE set of heterozygous markers to NA (default: TRUE)
-#' @param beagle_core Number of threats using in BEAGLE 5 (default: 10)
+#' @param beagle_core Number of threats using in BEAGLE 5 (default: 1)
 #' @param path_beaglejar Directory of the BEAGLE jar (default: "beagle5.jar")
 #' @param beagle_ne Corresponds to ne parameter in BEAGLE
 #' @param estimate_sv Set TRUE to activate structural variation detection
@@ -54,6 +54,7 @@ software for any purpose. It is provided solely "as is".
 #' @param geno genotype dataset
 #' @param depth read-depth
 #' @param allele allele names (default: major "A", minor "C")
+#' @param snpname SNP IDss
 #' @param lines line names
 #' @param posi physical marker positions
 #' @param activ_HB Set to FALSE to not perform imputation via HBimpute (why do you use the package?!)
@@ -88,7 +89,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
                    hetero=FALSE, hb_data = NULL, hb_map = NULL, hb_maf=0,
                    activ_HB=TRUE, max_hetero=0.01, hetero_is_missing=TRUE,
                    remove_del=FALSE,
-                   beagle_core = 10, path_beaglejar = "beagle5.jar",
+                   beagle_core = 1, path_beaglejar = "beagle5.jar",
                    estimate_del=NULL, estimate_cnv=NULL,
                    use_cnv=FALSE, use_del=FALSE,
                    del_freq=0.1, cnv_min=2, cnv_freq=0.1,
@@ -196,6 +197,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
 
         take <- which(data@fix[,1]==chromo)
 
+
         name <- strsplit((data@gt)[1,1], ":")[[1]]
 
 
@@ -225,7 +227,9 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
 
         haplo1 <- matrix(substr(subdata[genotake], start=1, stop=1), ncol=ncol(data@gt)-1)
         haplo2 <- matrix(substr(subdata[genotake], start=3, stop=3), ncol=ncol(data@gt)-1)
+        snpname <- data@fix[take,3]
         allele <- data@fix[take, 4:5]
+
 
         posi <- as.numeric(data@fix[take,2])
         if(length(lines)==0){
@@ -300,6 +304,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         depth_file <- rowMeans(check1, na.rm=TRUE)
         geno <- geno[depth_file<max_hetero,]
         allele <- allele[depth_file<max_hetero,]
+        snpname <- snpname[depth_file<max_hetero]
         depth <- depth[depth_file<max_hetero,]
         posi <- posi[depth_file<max_hetero]
       }
@@ -313,6 +318,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         geno <- geno[add<1,]
         posi <- posi[add<1]
         allele <- allele[add<1,]
+        snpname <- snpname[add<1]
         depth <- depth[add<1,]
       }
 
@@ -326,6 +332,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         p_i[p_i>0.5] <- 1 - p_i[p_i>0.5]
         geno <- geno[p_i>maf,]
         allele <- allele[p_i>maf,]
+        snpname <- snpname[p_i>maf]
         depth <- depth[p_i>maf,]
         posi <- posi[p_i>maf]
       }
@@ -336,6 +343,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         geno <- geno[called>share_called,]
         posi <- posi[called>share_called]
         allele <- allele[called>share_called,]
+        snpname <- snpname[called>share_called]
         depth <- depth[called>share_called,]
 
       }
@@ -351,10 +359,15 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         alt <- rep("C", nrow(geno))
       }
 
+      if(length(snpname)!= nrow(allele)){
+        snpname <-  paste0("SNP", 1:nrow(allele))
+      }
+
       if(length(allele)>0 && (sum(is.na(allele))>0 || sum(allele[,1]==allele[,2])>0)){
         remove3 <- which(rowSums(is.na(allele))>0 | (allele[,1]==allele[,2]))
         geno <- geno[-remove3,]
         allele <- allele[-remove3,]
+        snpname <- snpname[-remove3]
         depth <- depth[-remove3,]
         posi <- posi[-remove3]
         ref <- allele[,1]
@@ -396,7 +409,12 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
           vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], "/", haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
 
 
-          map <- cbind(paste0("SNP", 1:nrow(haplo)), as.numeric(posi))
+          if(nrow(haplo)==length(snpname)){
+            map <- cbind(snpname , as.numeric(posi))
+          } else{
+            map <- cbind(paste0("SNP", 1:nrow(haplo)), as.numeric(posi))
+          }
+
 
 
           options(scipen=999)
@@ -750,6 +768,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         hb_depth <- hb_depth[-quali_filter3,]
         new_depth <- new_depth[-quali_filter3,]
         allele <- allele[-quali_filter3,]
+        snpname <- snpname[-quali_filter3]
         ref <- ref[-quali_filter3]
         alt <- alt[-quali_filter3]
         depth <- depth[-quali_filter3]
@@ -775,7 +794,6 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
 
       }
 
-      snpname <-  paste0("SNP", 1:nrow(geno_imputed))
 
       if(use_del){
         DEL <- rowSums(estimated_deletion)
@@ -795,9 +813,9 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         addcnv <- NULL
       }
 
-      map <- rbind(cbind(paste0("SNP", 1:nrow(geno_imputed)), as.numeric(posi)) ,
-                   cbind(paste0("SNP", 1:nrow(geno_imputed), "_DEL")[adddel], as.numeric(posi)[adddel] ),
-                   cbind( paste0("SNP", 1:nrow(geno_imputed), "_CNV")[addcnv],  as.numeric(posi)[addcnv] ))
+      map <- rbind(cbind(snpname, as.numeric(posi)) ,
+                   cbind(paste0(snpname, "_DEL")[adddel], as.numeric(posi)[adddel] ),
+                   cbind( paste0(snpname, "_CNV")[addcnv],  as.numeric(posi)[addcnv] ))
 
       ref <- c(ref, rep("A", length(adddel)+ length(addcnv)))
       alt <- c(alt, rep("C", length(adddel)+ length(addcnv)))
@@ -1071,7 +1089,7 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
         }
 
 
-        snpname <-  paste0("SNP", 1:nrow(geno_imputed))
+
 
         if(use_del){
           DEL <- rowSums(estimated_deletion)
@@ -1158,7 +1176,6 @@ impute <- function(vcf=NULL, vcf_RData=NULL,
 
 
   }
-
 
 
 }
