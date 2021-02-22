@@ -6,7 +6,9 @@
 \usage{
 impute(
   vcf = NULL,
+  vcf_ref = NULL,
   vcf_RData = NULL,
+  vcf_ref_RData = NULL,
   log = NULL,
   chromo = NULL,
   out = "out",
@@ -49,7 +51,7 @@ impute(
   extended_output = FALSE,
   quali_filter = TRUE,
   max_na = 0.5,
-  min_depth = 0.5,
+  min_depth = NULL,
   estimate_sv = FALSE,
   sv_cut1 = 1.3,
   sv_cut2 = 0.7,
@@ -64,7 +66,11 @@ impute(
 \arguments{
 \item{vcf}{Path of the file to impute (alternatively provide geno, depth, allele, lines, posi manually)}
 
+\item{vcf_ref}{Path of a reference panel}
+
 \item{vcf_RData}{Path of an RData object to read instead of plain vcf-file}
+
+\item{vcf_ref_RData}{Path of an RData object to read instead of plain vcf-file}
 
 \item{log}{Path of a potential log file to be written (default: NULL will take vcf-file name)}
 
