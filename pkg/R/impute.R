@@ -236,6 +236,11 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
         if(length(vcf_ref)==0){
           data_joined <- data
           is_ref <- rep(FALSE, ncol(data@gt)-1)
+          if(length(take)< nrow(data_joined@gt)){
+            data_joined@gt <- data_joined@gt[take,]
+            data_joined@fix <- data_joined@fix[take,]
+          }
+
         } else{
           marker_panel <- data@fix[take,]
           gt_panel_set <- data@gt[take,]
@@ -281,7 +286,28 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
         }
 
 
-        name <- strsplit((data_joined@gt)[1,1], ":")[[1]]
+        name_check <- unique(data_joined@gt[,1])
+
+        if(length(name_check)>1){
+          warnings("FORMAT Column in not the same for all samples!")
+
+          name1 <- list()
+          for(index in 1:length(name_check)){
+            name1[[index]] <-  strsplit(name_check[index], ":")[[1]]
+          }
+
+          max_l <- max(HaploBlocker::llength(name1))
+          which_max <- which.max(llength(name1))
+          name <- name1[[which_max]]
+          for(index in 1:length(name_check)){
+            name[1:length(name1[[index]])][name1[[index]]!=name1[[which_max]][1:length(name1[[index]])]] <- "Not_available"
+          }
+
+
+        } else{
+          name <- strsplit((data_joined@gt)[1,1], ":")[[1]]
+        }
+
 
 
         subdata_split <- list()
@@ -290,6 +316,7 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
         pb <- utils::txtProgressBar(min = 0, max = ncol(data_joined@gt), style = 3)
 
         for(subindex in 2:ncol(data_joined@gt)){
+          t1 <- Sys.time()
           utils::setTxtProgressBar(pb, subindex)
 
           subdata <- strsplit(data_joined@gt[,subindex], ":", fixed=TRUE)
@@ -398,156 +425,199 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
         }
 
       }
+
       if(hetero){
+        is_ref2
         is_ref <- is_ref[sort(rep(1:length(is_ref),2))]
       }
 
-    }
-
-    if(length(lines)==0){
-      lines <- paste0("ID_", 1:ncol(geno))
-      colnames(geno) <- colnames(haplo1) <- colnames(haplo2) <- lines
-    }
-
-    ###########################################################
-    ########### Quality control: ##############################
-    ###########################################################
-
-    if((max_hetero<1 && !hetero) && (length(vcf)>0 || zero_two_coding)){
-      if(length(vcf)>0){
-        check1 <- haplo1!=haplo2
-      } else if(zero_two_coding){
-        geno[geno>2] <- 1L
-        check1 <- geno==1
-        geno[check1] <- NA
-        geno <- geno / 2L
+      if(length(lines)==0){
+        lines <- paste0("ID_", 1:ncol(geno))
+        colnames(geno) <- colnames(haplo1) <- colnames(haplo2) <- lines
       }
 
-      depth_file <- rowMeans(check1, na.rm=TRUE)
-      geno <- geno[depth_file<max_hetero,]
-      allele <- allele[depth_file<max_hetero,]
-      snpname <- snpname[depth_file<max_hetero]
-      depth <- depth[depth_file<max_hetero,]
-      posi <- posi[depth_file<max_hetero]
-    }
+      ###########################################################
+      ########### Quality control: ##############################
+      ###########################################################
 
-    if(!hetero){
-      depth[is.na(geno)] <- 0L
-    }
-    add <- rowMeans(is.na(geno))
+      if((max_hetero<1 && !hetero) && (length(vcf)>0 || zero_two_coding)){
+        if(length(vcf)>0){
+          check1 <- haplo1!=haplo2
+        } else if(zero_two_coding){
+          geno[geno>2] <- 1L
+          check1 <- geno==1
+          geno[check1] <- NA
+          geno <- geno / 2L
+        }
 
-    if(sum(add==1)>0){
-      geno <- geno[add<1,]
-      posi <- posi[add<1]
-      allele <- allele[add<1,]
-      snpname <- snpname[add<1]
-      depth <- depth[add<1,]
-    }
-
-    if(maf>=0){
-      if(hetero){
-        p_i <- rowMeans(geno, na.rm=TRUE) / 2
-      } else{
-        p_i <- rowMeans(geno>0, na.rm=TRUE)
+        depth_file <- rowMeans(check1, na.rm=TRUE)
+        geno <- geno[depth_file<max_hetero,]
+        allele <- allele[depth_file<max_hetero,]
+        snpname <- snpname[depth_file<max_hetero]
+        depth <- depth[depth_file<max_hetero,]
+        posi <- posi[depth_file<max_hetero]
       }
 
-      p_i[p_i>0.5] <- 1 - p_i[p_i>0.5]
-      geno <- geno[p_i>maf,]
-      allele <- allele[p_i>maf,]
-      snpname <- snpname[p_i>maf]
-      depth <- depth[p_i>maf,]
-      posi <- posi[p_i>maf]
-    }
+      if(!hetero){
+        depth[is.na(geno)] <- 0L
+      }
+      add <- rowMeans(is.na(geno))
 
-    if(share_called>0){
-      called <- rowMeans(!is.na(geno))
+      if(sum(add==1)>0){
+        geno <- geno[add<1,]
+        posi <- posi[add<1]
+        allele <- allele[add<1,]
+        snpname <- snpname[add<1]
+        depth <- depth[add<1,]
+      }
 
-      geno <- geno[called>share_called,]
-      posi <- posi[called>share_called]
-      allele <- allele[called>share_called,]
-      snpname <- snpname[called>share_called]
-      depth <- depth[called>share_called,]
+      if(maf>=0){
+        if(hetero){
+          p_i <- rowMeans(geno, na.rm=TRUE) / 2
+        } else{
+          p_i <- rowMeans(geno>0, na.rm=TRUE)
+        }
 
-    }
+        p_i[p_i>0.5] <- 1 - p_i[p_i>0.5]
+        geno <- geno[p_i>maf,]
+        allele <- allele[p_i>maf,]
+        snpname <- snpname[p_i>maf]
+        depth <- depth[p_i>maf,]
+        posi <- posi[p_i>maf]
+      }
 
-    depth[depth > max_depth] <- max_depth
+      if(share_called>0){
+        called <- rowMeans(!is.na(geno))
+
+        geno <- geno[called>share_called,]
+        posi <- posi[called>share_called]
+        allele <- allele[called>share_called,]
+        snpname <- snpname[called>share_called]
+        depth <- depth[called>share_called,]
+
+      }
+
+      depth[depth > max_depth] <- max_depth
 
 
-    if(length(allele)>0){
-      ref <- allele[,1]
-      alt <- allele[,2]
-    } else{
-      ref <- rep("A", nrow(geno))
-      alt <- rep("C", nrow(geno))
-    }
-
-    if(length(snpname)!= nrow(allele)){
-      snpname <-  paste0("SNP", 1:nrow(allele))
-    }
-
-    if(length(allele)>0 && (sum(is.na(allele))>0 || sum(allele[,1]==allele[,2])>0)){
-      remove3 <- which(rowSums(is.na(allele))>0 | (allele[,1]==allele[,2]))
-      geno <- geno[-remove3,]
-      allele <- allele[-remove3,]
-      snpname <- snpname[-remove3]
-      depth <- depth[-remove3,]
-      posi <- posi[-remove3]
-      ref <- allele[,1]
-      alt <- allele[,2]
-    }
-
-    cat(paste0(nrow(geno), " markers survieved filtering.\n"))
-
-    ###########################################################
-    ###### Generate dataset to derive Haplotype Library #######
-    ############ Auxillary imputed SNP dataset ################
-    ###########################################################
-
-    if(length(chromo_set)>1){
-      hb_data <- hb_store
-    }
-    if(length(hb_data)<=1){
-
-      if(length(hb_data)==1){
-
-        data_temp <- vcfR::read.vcfR(hb_data)
-
+      if(length(allele)>0){
+        ref <- allele[,1]
+        alt <- allele[,2]
       } else{
-        if(hetero){
-          haplo <- geno[,sort(rep(1:ncol(geno),2))]
-          haplo[,1:ncol(geno)*2][haplo[,1:ncol(geno)*2]==1] <- 0L
+        ref <- rep("A", nrow(geno))
+        alt <- rep("C", nrow(geno))
+      }
+
+      if(length(snpname)!= nrow(allele)){
+        snpname <-  paste0("SNP", 1:nrow(allele))
+      }
+      if(sum(is.na(snpname))>0){
+        snpname[is.na(snpname)] <- paste0("SNP", which(is.na(snpname)))
+      }
+
+      if(length(allele)>0 && (sum(is.na(allele))>0 || sum(allele[,1]==allele[,2])>0)){
+        remove3 <- which(rowSums(is.na(allele))>0 | (allele[,1]==allele[,2]))
+        geno <- geno[-remove3,]
+        allele <- allele[-remove3,]
+        snpname <- snpname[-remove3]
+        depth <- depth[-remove3,]
+        posi <- posi[-remove3]
+        ref <- allele[,1]
+        alt <- allele[,2]
+      }
+
+      cat(paste0(nrow(geno), " markers survieved filtering.\n"))
+
+      ###########################################################
+      ###### Generate dataset to derive Haplotype Library #######
+      ############ Auxillary imputed SNP dataset ################
+      ###########################################################
+
+      if(length(chromo_set)>1){
+        hb_data <- hb_store
+      }
+      if(length(hb_data)<=1){
+
+        if(length(hb_data)==1){
+
+          data_temp <- vcfR::read.vcfR(hb_data)
+
         } else{
-          haplo <- geno[,sort(rep(1:ncol(geno),2))]
-        }
+          if(hetero){
+            haplo <- geno[,sort(rep(1:ncol(geno),2))]
+            haplo[,1:ncol(geno)*2][haplo[,1:ncol(geno)*2]==1] <- 0L
+          } else{
+            haplo <- geno[,sort(rep(1:ncol(geno),2))]
+          }
 
-        if(hetero){
-          haplo[haplo==2] <- 1L
-        }
+          if(hetero){
+            haplo[haplo==2] <- 1L
+          }
 
-        haplo[is.na(haplo)] <- "."
-
-
-        separator <- rep("/", length(is_ref))
-        if(!ref_beagle){
-          separator[is_ref] <- "|"
-        }
-
-        vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], separator, haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
+          haplo[is.na(haplo)] <- "."
 
 
-        if(nrow(haplo)==length(snpname)){
-          map <- cbind(snpname , as.numeric(posi))
-        } else{
-          map <- cbind(paste0("SNP", 1:nrow(haplo)), as.numeric(posi))
-        }
+          separator <- rep("/", length(is_ref))
+          if(!ref_beagle){
+            separator[is_ref] <- "|"
+          }
+
+          if(hetero){
+            separator <- separator[1:(length(separator)/2)*2]
+          }
+
+          separator <- rep(separator, each = nrow(haplo))
+
+          vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], separator, haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
+
+
+          if(nrow(haplo)==length(snpname)){
+            map <- cbind(snpname , as.numeric(posi))
+          } else{
+            map <- cbind(paste0("SNP", 1:nrow(haplo)), as.numeric(posi))
+          }
 
 
 
-        if(sum(is_ref)>0){
+          if(sum(is_ref)>0){
+            options(scipen=999)
+            if(hetero){
+              ref_indi <- which(is_ref2)
+            } else{
+              ref_indi <- which(is_ref)
+            }
+
+            vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,ref_indi])
+            vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[ref_indi]),vcfgenofull)
+
+            headerfile <- rbind(
+              "##fileformat=VCFv4.2",
+              gsub("-", "", paste0("##filedate=",  Sys.Date())),
+              paste0("##source='HBimpute_v0.0'"),
+              "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
+            )
+
+            utils::write.table(headerfile, file=path_prebeagle4, quote=FALSE, col.names = FALSE, row.names = FALSE)
+            utils::write.table(vcfgenofull, file=path_prebeagle4, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
+
+            if(ref_beagle){
+              beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle4," out=",ref_temp," nthreads=", beagle_core)
+              system(beagle_commandline)
+            }
+          }
+
           options(scipen=999)
-          ref_indi <- which(is_ref)
-          vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,ref_indi])
-          vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[ref_indi]),vcfgenofull)
+
+          if(hetero){
+            panel_indi <- which(!(is_ref[(1:(length(is_ref)/2))*2]))
+          } else{
+            panel_indi <- which(!is_ref)
+          }
+
+
+
+          vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,panel_indi])
+          vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[panel_indi]),vcfgenofull)
 
           headerfile <- rbind(
             "##fileformat=VCFv4.2",
@@ -556,739 +626,453 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
             "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
           )
 
-          utils::write.table(headerfile, file=path_prebeagle4, quote=FALSE, col.names = FALSE, row.names = FALSE)
-          utils::write.table(vcfgenofull, file=path_prebeagle4, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
+          utils::write.table(headerfile, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE)
+          utils::write.table(vcfgenofull, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
 
-          if(ref_beagle){
-            beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle4," out=",ref_temp," nthreads=", beagle_core)
-            system(beagle_commandline)
+          if(sum(is_ref)>0){
+            if(ref_beagle){
+              ref_path <- paste0(ref_temp, ".vcf.gz")
+            } else{
+              ref_path <- path_prebeagle4
+            }
+            beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," ref=", ref_path ," nthreads=", beagle_core)
+          } else{
+            beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," nthreads=", beagle_core)
           }
+
+          system(beagle_commandline)
+
+          data_temp <- vcfR::read.vcfR(paste0(out_temp,".vcf.gz"))
+          if(sum(is_ref)>0){
+            data_temp_ref <-vcfR::read.vcfR(ref_path)
+
+            data_temp@gt <- cbind(data_temp@gt, data_temp_ref@gt[,-1])
+          }
+
+
         }
 
-        options(scipen=999)
-        panel_indi <- which(!is_ref)
-        vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,panel_indi])
-        vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[panel_indi]),vcfgenofull)
 
-        headerfile <- rbind(
-          "##fileformat=VCFv4.2",
-          gsub("-", "", paste0("##filedate=",  Sys.Date())),
-          paste0("##source='HBimpute_v0.0'"),
-          "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
-        )
 
-        utils::write.table(headerfile, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE)
-        utils::write.table(vcfgenofull, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
-
-        if(sum(is_ref)>0){
-          if(ref_beagle){
-            ref_path <- paste0(ref_temp, ".vcf.gz")
-          } else{
-            ref_path <- path_prebeagle4
-          }
-          beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," ref=", ref_path ," nthreads=", beagle_core)
+        g1 <- substr(data_temp@gt[,-1], start=1, stop=1)
+        g2 <- substr(data_temp@gt[,-1], start=3, stop=3)
+        storage.mode(g1) <- "integer"
+        storage.mode(g2) <- "integer"
+        if(hetero){
+          hb_data <- cbind(g1,g2)
+          g1m <- g1
+          g2m <- g2
+          g1m[depth==0L] <- NA
+          g2m[depth==0L] <- NA
+          #        g1m <- matrix(g1m, ncol=ncol(g1))
+          #        g2m <- matrix(g2m, ncol=ncol(g2))
+          hb_data_miss <- cbind(g1m,g2m)
+          hb_data_miss <- hb_data_miss[,(rep(c(0,ncol(g1m)), ncol(g1m))) + sort(rep(c(1:ncol(g1m)), 2))] *2
+          hb_data <- hb_data[,(rep(c(0,ncol(g1)), ncol(g1))) + sort(rep(c(1:ncol(g1)), 2))] *2
+          colnames(hb_data) <- (colnames(data_temp@gt)[-1])[sort(rep(1:ncol(g1),2))]
         } else{
-          beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," nthreads=", beagle_core)
-        }
-
-        system(beagle_commandline)
-
-        data_temp <- vcfR::read.vcfR(paste0(out_temp,".vcf.gz"))
-        if(sum(is_ref)>0){
-          data_temp_ref <-vcfR::read.vcfR(ref_path)
-
-          data_temp@gt <- cbind(data_temp@gt, data_temp_ref@gt[,-1])
+          hb_data <- g1 + g2
+          colnames(hb_data) <- colnames(data_temp@gt)[-1]
         }
 
 
-      }
-
-
-
-      g1 <- substr(data_temp@gt[,-1], start=1, stop=1)
-      g2 <- substr(data_temp@gt[,-1], start=3, stop=3)
-      storage.mode(g1) <- "integer"
-      storage.mode(g2) <- "integer"
-      if(hetero){
-        hb_data <- cbind(g1,g2)
-        g1m <- g1
-        g2m <- g2
-        g1m[depth==0L] <- NA
-        g2m[depth==0L] <- NA
-        hb_data_miss <- cbind(g1m,g2m)
-        hb_data_miss <- hb_data_miss[,(rep(c(0,ncol(g1m)), ncol(g1m))) + sort(rep(c(1:ncol(g1m)), 2))] *2
-        hb_data <- hb_data[,(rep(c(0,ncol(g1)), ncol(g1))) + sort(rep(c(1:ncol(g1)), 2))] *2
-        colnames(hb_data) <- (colnames(data_temp@gt)[-1])[sort(rep(1:ncol(g1),2))]
+        hb_map <- as.numeric(data_temp@fix[,2])
       } else{
-        hb_data <- g1 + g2
-        colnames(hb_data) <- colnames(data_temp@gt)[-1]
-      }
-
-
-      hb_map <- as.numeric(data_temp@fix[,2])
-    } else{
-      if(length(hb_map)==0){
-        stop("No map file for hb_data file provided!")
-      }
-    }
-
-    ###########################################################
-    ########################## HBimpute step ##################
-    ###########################################################
-
-    if(activ_HB){
-      cat("Start derivation of HB library:\n")
-      library(HaploBlocker)
-
-      if(length(colnames(hb_data))==0){
-        colnames(hb_data) <- lines
-      }
-      keep <- which(duplicated(c(lines,colnames(hb_data)))[-(1:length(lines))])
-      dhm <- hb_data[,keep]
-      order <- numeric(length(keep))
-      to_remove <- NULL
-      if(hetero){
-        for(index in 1:(length(keep)/2)){
-          order[c(index*2-1, index*2)] <- which(colnames(dhm)==lines[index])
+        if(length(hb_map)==0){
+          stop("No map file for hb_data file provided!")
         }
-      } else{
-        for(index in 1:length(keep)){
-          keeper <- which(colnames(dhm)==lines[index])
-          if(length(keeper)==1){
-            order[index] <- keeper
+      }
+
+      ###########################################################
+      ########################## HBimpute step ##################
+      ###########################################################
+
+      if(activ_HB){
+        cat("Start derivation of HB library:\n")
+        library(HaploBlocker)
+
+        if(length(colnames(hb_data))==0){
+          colnames(hb_data) <- lines
+        }
+        keep <- which(duplicated(c(lines,colnames(hb_data)))[-(1:length(lines))])
+        dhm <- hb_data[,keep]
+        order <- numeric(length(keep))
+        to_remove <- NULL
+        if(hetero){
+          for(index in 1:(length(keep)/2)){
+            order[c(index*2-1, index*2)] <- which(colnames(dhm)==lines[index])
+          }
+        } else{
+          for(index in 1:length(keep)){
+            keeper <- which(colnames(dhm)==lines[index])
+            if(length(keeper)==1){
+              order[index] <- keeper
+            } else{
+              to_remove <- c(to_remove, index)
+              warning("Lines without haplotype library representative")
+            }
+
+          }
+        }
+
+        dhm <- cbind(dhm[,order], hb_data[,-keep])
+        nmax <- length(order)
+
+        if(hb_maf > 0){
+          hb_pi <- rowMeans(dhm)/max(dhm)
+          hb_pi[hb_pi>0.5] <- 1 - hb_pi[hb_pi>0.5]
+          keep2 <- which(hb_pi>hb_maf)
+          hb_map <- hb_map[keep2]
+          dhm <- dhm[keep2,]
+        }
+
+
+        if(FALSE){
+          share_mis <- rowMeans(haplo==".")
+          keep_hb <- which(share_mis < quantile(share_mis,0.5))
+
+          dhm <- dhm[keep_hb,]
+          hb_map <- hb_map[keep_hb]
+        }
+        if(hb_max < nrow(dhm)){
+          remains <- sort(sample(1:nrow(dhm), hb_max))
+          dhm <- dhm[remains,]
+          hb_map <- hb_map[remains]
+        }
+        cat(paste0(length(hb_map), " SNPs used to derive haplotype library.\n"))
+
+        blocklist <- HaploBlocker::block_calculation(dhm, bp=hb_map, node_min = 3,
+                                                     edge_min = 3,
+                                                     window_size=window_size,
+                                                     target_coverage=target_coverage,
+                                                     min_majorblock = min_majorblock,
+                                                     weighting_length = 2,
+                                                     early_remove = early_remove,
+                                                     node_min_early = node_min_early)
+
+
+        t <- HaploBlocker::coverage_test(blocklist)
+        se <- HaploBlocker::blocklist_startend(blocklist, type="snp")
+        print(mean(HaploBlocker::blocklist_size(blocklist)))
+        cat(paste0("Avg. block length is ", round(mean(se[,2]-se[,1])), " SNPs\n"))
+        se <- HaploBlocker::blocklist_startend(blocklist, type="bp")
+        t1 <- round(mean(t)*100, digits=2)
+        le <- round(mean(se[,2]-se[,1])/1000000, digits=2)
+        cat(paste0("Final haplotype library with ", t1, "% coverage.\n"))
+        cat(paste0("Avg. block length is ", le, " MB\n"))
+        if(t1<80){
+          warning(paste0("Coverage in haplotype library is potentially too low at ", t1, "%"))
+        }
+        if(le < 0.1){
+          warning(paste0("Avg.block length is only ", le, " MB. Potential problems with haplotype library!"))
+        }
+
+        if(length(to_remove)>0){
+          if(hetero){
+
           } else{
-            to_remove <- c(to_remove, index)
-            warning("Lines without haplotype library representative")
+            geno <- geno[,-to_remove]
+            depth <- depth[,-to_remove]
           }
 
         }
-      }
 
-      dhm <- cbind(dhm[,order], hb_data[,-keep])
-      nmax <- length(order)
+        if(hetero){
+          geno_imputed <- matrix(NA, nrow=nrow(haplo), ncol=sum(!is_ref))
+          new_depth <- hb_depth <-  estimated_cnv <- estimated_deletion <- matrix(0L, nrow=nrow(haplo), ncol=sum(!is_ref))
+        } else{
+          geno_imputed <- matrix(NA, nrow=nrow(geno), ncol=sum(!is_ref))
+          new_depth <- hb_depth <-  estimated_cnv <- estimated_deletion <- matrix(0L, nrow=nrow(geno), ncol=sum(!is_ref))
+        }
 
-      if(hb_maf > 0){
-        hb_pi <- rowMeans(dhm)/max(dhm)
-        hb_pi[hb_pi>0.5] <- 1 - hb_pi[hb_pi>0.5]
-        keep2 <- which(hb_pi>hb_maf)
-        hb_map <- hb_map[keep2]
-        dhm <- dhm[keep2,]
-      }
-      cat(paste0(length(hb_map), " SNPs used to derive haplotype library.\n"))
 
-      if(FALSE){
-        share_mis <- rowMeans(haplo==".")
-        keep_hb <- which(share_mis < quantile(share_mis,0.5))
+        loc <- as.numeric(posi)
 
-        dhm <- dhm[keep_hb,]
-        hb_map <- hb_map[keep_hb]
-      }
-      if(hb_max < nrow(dhm)){
-        remains <- sort(sample(1:nrow(dhm), hb_max))
-        dhm <- dhm[remains,]
-        hb_map <- hb_map[remains]
-      }
-      cat(paste0(length(hb_map), " SNPs used to derive haplotype library.\n"))
+        mean_depth <- mean(depth)
 
-      blocklist <- HaploBlocker::block_calculation(dhm, bp=hb_map, node_min = 3,
-                                                   edge_min = 3,
-                                                   window_size=window_size,
-                                                   target_coverage=target_coverage,
-                                                   min_majorblock = min_majorblock,
-                                                   weighting_length = 2,
-                                                   early_remove = early_remove,
-                                                   node_min_early = node_min_early)
 
-      t <- HaploBlocker::coverage_test(blocklist)
-      se <- HaploBlocker::blocklist_startend(blocklist, type="snp")
-      print(mean(HaploBlocker::blocklist_size(blocklist)))
-      cat(paste0("Avg. block length is ", round(mean(se[,2]-se[,1])), " SNPs\n"))
-      se <- HaploBlocker::blocklist_startend(blocklist, type="bp")
-      t1 <- round(mean(t)*100, digits=2)
-      le <- round(mean(se[,2]-se[,1])/1000000, digits=2)
-      cat(paste0("Final haplotype library with ", t1, "% coverage.\n"))
-      cat(paste0("Avg. block length is ", le, " MB\n"))
-      if(t1<80){
-        warning(paste0("Coverage in haplotype library is potentially too low at ", t1, "%"))
-      }
-      if(le < 0.1){
-        warning(paste0("Avg.block length is only ", le, " MB. Potential problems with haplotype library!"))
-      }
-
-      if(length(to_remove)>0){
         if(hetero){
 
         } else{
-          geno <- geno[,-to_remove]
-          depth <- depth[,-to_remove]
+          geno_temp <- geno
+          geno_temp[is.na(geno_temp)] <- 0
+          rmax <- RandomFieldsUtils::colMax(t(geno_temp))
         }
 
-      }
-
-      if(hetero){
-        geno_imputed <- matrix(NA, nrow=nrow(haplo), ncol=sum(!is_ref))
-        new_depth <- hb_depth <-  estimated_cnv <- estimated_deletion <- matrix(0L, nrow=nrow(haplo), ncol=sum(!is_ref))
-      } else{
-        geno_imputed <- matrix(NA, nrow=nrow(geno), ncol=sum(!is_ref))
-        new_depth <- hb_depth <-  estimated_cnv <- estimated_deletion <- matrix(0L, nrow=nrow(geno), ncol=sum(!is_ref))
-      }
-
-
-      loc <- as.numeric(posi)
-
-      mean_depth <- mean(depth)
-
-
-      if(hetero){
-
-      } else{
-        geno_temp <- geno
-        geno_temp[is.na(geno_temp)] <- 0
-        rmax <- RandomFieldsUtils::colMax(t(geno_temp))
-      }
-
-      cat("Start HB imputation:\n")
-      pb <- utils::txtProgressBar(min = 0, max = sum(!is_ref), style = 3)
-      for(nr in 1:sum(!is_ref)){
-        utils::setTxtProgressBar(pb, nr)
-        se <- se_temp <- HaploBlocker::blocklist_startend(blocklist, type="bp")
-        include <- HaploBlocker::which.block(blocklist, nr)
-        se <- se[which(include>0),,drop=FALSE]
-        if(length(se)==0){
-          next
-        }
-        end_block  <- sort(unique(c(0,se[,1]-1, se[,2], max(as.numeric(posi)))))[-1]
-        start_block <- c(1, end_block[1:(length(end_block)-1)]+1)
-
-        p2 <- numeric(length(start_block))
-        activ <- 1
-        for(index in 1:length(loc)){
-          while(activ<=length(start_block) && loc[index]>=start_block[activ]){
-            activ <- activ + 1
+        cat("Start HB imputation:\n")
+        pb <- utils::txtProgressBar(min = 0, max = sum(!is_ref), style = 3)
+        for(nr in 1:sum(!is_ref)){
+          utils::setTxtProgressBar(pb, nr)
+          se <- se_temp <- HaploBlocker::blocklist_startend(blocklist, type="bp")
+          include <- HaploBlocker::which.block(blocklist, nr)
+          se <- se[which(include>0),,drop=FALSE]
+          if(length(se)==0){
+            next
           }
-          if(activ<=length(start_block)){
-            p2[activ-1] <- index
-          }
-        }
+          end_block  <- sort(unique(c(0,se[,1]-1, se[,2], max(as.numeric(posi)))))[-1]
+          start_block <- c(1, end_block[1:(length(end_block)-1)]+1)
 
-        if(p2[1]==0){
-          p2[1] <- -1
-        }
-        while(sum(p2==0)>0){
-          p2[p2==0] <- p2[which(p2==0)-1]
-        }
-        if(p2[1]==(-1)){
-          p2[1] <- 0
-        }
-        p2[length(p2)] <- sum(loc<=max(end_block))
-        p1 <- c(1, p2[1:(length(p2)-1)]+1)
-
-        for(index in (1:length(start_block))[p2>0]){
-          take <- p1[index]:p2[index]
-          indi <- HaploBlocker::which.indi(blocklist, nr, start=start_block[index], end=end_block[index], se = se_temp)
-          indi <- indi[indi<=nmax]
-          if(length(indi)==0){
-            indi <- nr
+          p2 <- numeric(length(start_block))
+          activ <- 1
+          for(index in 1:length(loc)){
+            while(activ<=length(start_block) && loc[index]>=start_block[activ]){
+              activ <- activ + 1
+            }
+            if(activ<=length(start_block)){
+              p2[activ-1] <- index
+            }
           }
-          indi <- c(indi, nr, nr, nr, nr)
-          if(length(indi)>0 && length(take)>0){
-            if(hetero){
-              ana <- hb_data_miss[take,indi, drop=FALSE]
-            } else{
-              ana <- geno[take,indi, drop=FALSE]
+
+          if(p2[1]==0){
+            p2[1] <- -1
+          }
+          while(sum(p2==0)>0){
+            p2[p2==0] <- p2[which(p2==0)-1]
+          }
+          if(p2[1]==(-1)){
+            p2[1] <- 0
+          }
+          p2[length(p2)] <- sum(loc<=max(end_block))
+          p1 <- c(1, p2[1:(length(p2)-1)]+1)
+
+          for(index in (1:length(start_block))[p2>0]){
+            take <- p1[index]:p2[index]
+            indi <- HaploBlocker::which.indi(blocklist, nr, start=start_block[index], end=end_block[index], se = se_temp)
+            indi <- indi[indi<=nmax]
+            if(length(indi)==0){
+              indi <- nr
+            }
+            if(length(indi)>1){
+              indi <- c(indi, nr, nr, nr, nr)
             }
 
-            if(hetero){
-              anad <- depth[take,ceiling(indi/2), drop=FALSE]
-            } else{
-              anad <- depth[take,indi, drop=FALSE]
-            }
-
-            ana[is.na(ana)] <- -999L
-
-            if(hetero){
-              zero <- rowSums((ana==0L)*anad)
-              two <- rowSums((ana==2L)*anad)
-            } else{
-              n_variant <- max(rmax[take]) + 1
-              counter_list <- list()
-              totalr <- numeric(length(take))
-              for(index2 in 1:n_variant){
-                counter_list[[index2]] <- rowSums((ana==as.integer(index2-1))*anad)
-                totalr <- totalr +  counter_list[[index2]]
+            if(length(indi)>0 && length(take)>0){
+              if(hetero){
+                ana <- hb_data_miss[take,indi, drop=FALSE]
+              } else{
+                ana <- geno[take,indi, drop=FALSE]
               }
 
-            }
-
-            if(hetero){
-              geno_imputed[take,nr][((zero>((two)*min_confi)))*(zero>min_confi)*(1:length(zero))] <- 0L
-              geno_imputed[take,nr][((min_confi*(zero))<two) * (two>min_confi)* (1:length(two))] <- 2L
-            } else{
-              for(index2 in 1:n_variant){
-                geno_imputed[take,nr][((counter_list[[index2]] / totalr) >= (min_confi/ (min_confi+1)))*(counter_list[[index2]]>min_confi)*(1:length(totalr))] <- index2 - 1L
+              if(hetero){
+                anad <- depth[take,ceiling(indi/2), drop=FALSE]
+              } else{
+                anad <- depth[take,indi, drop=FALSE]
               }
 
-            }
+              ana[is.na(ana)] <- -999L
+
+              if(hetero){
+                zero <- rowSums((ana==0L)*anad)
+                two <- rowSums((ana==2L)*anad)
+              } else{
+                n_variant <- max(rmax[take]) + 1
+                counter_list <- list()
+                totalr <- numeric(length(take))
+                for(index2 in 1:n_variant){
+                  counter_list[[index2]] <- rowSums((ana==as.integer(index2-1))*anad)
+                  totalr <- totalr +  counter_list[[index2]]
+                }
+
+              }
+
+              if(hetero){
+                geno_imputed[take,nr][((zero>((two)*min_confi)))*(zero>min_confi)*(1:length(zero))] <- 0L
+                geno_imputed[take,nr][((min_confi*(zero))<two) * (two>min_confi)* (1:length(two))] <- 2L
+              } else{
+                for(index2 in 1:n_variant){
+                  geno_imputed[take,nr][((counter_list[[index2]] / totalr) >= (min_confi/ (min_confi+1)))*(counter_list[[index2]]>min_confi)*(1:length(totalr))] <- index2 - 1L
+                }
+
+              }
 
 
 
 
 
-            hb_depth[take,nr] <- length(indi)
+              hb_depth[take,nr] <- length(indi)
 
-            if(estimate_del){
-              mis <- rowSums((ana==(-999))) - 4 * (ana[,ncol(ana)]==(-999))
-              p_zero <- exp(-mean_depth)
-              total <- length(indi) - 4
+              if(estimate_del){
+                mis <- rowSums((ana==(-999))) - 4 * (ana[,ncol(ana)]==(-999))
+                p_zero <- exp(-mean_depth)
+                total <- length(indi) - 4
 
-              quali_na <- which(stats::pbinom(size = total, prob = p_zero, q=mis) > cutoff & total > 5)
-              estimated_deletion[take,nr][quali_na] <- 1
-            }
+                quali_na <- which(stats::pbinom(size = total, prob = p_zero, q=mis) > cutoff & total > 5)
+                estimated_deletion[take,nr][quali_na] <- 1
+              }
 
-            if(hetero){
-              new_depth[take,nr] <- zero +  two
-            } else{
-              new_depth[take,nr] <- totalr
-            }
+              if(hetero){
+                new_depth[take,nr] <- zero +  two
+              } else{
+                new_depth[take,nr] <- totalr
+              }
 
 
-            if(estimate_cnv){
-              estimated_cnv[take,nr] <- new_depth[take,nr] / length(indi) / mean_depth
+              if(estimate_cnv){
+                estimated_cnv[take,nr] <- new_depth[take,nr] / length(indi) / mean_depth
+              }
             }
           }
+          close(pb)
+
         }
-        close(pb)
 
-      }
+        if(remove_del && sum(estimated_deletion)>0){
+          geno_imputed[estimated_deletion==1] <- NA
+        }
 
-      if(remove_del && sum(estimated_deletion)>0){
-        geno_imputed[estimated_deletion==1] <- NA
-      }
 
-      if(hetero){
-        geno_imputed1 <- geno_imputed
-        new_depth1 <- new_depth
-        estimated_cnv1 <- estimated_cnv
-        estimated_deletion1 <- estimated_deletion
-        geno_imputed <- (geno_imputed[,1:ncol(geno)*2-1] + geno_imputed[,1:ncol(geno)*2])/2
-        new_depth_temp <- new_depth[,1:ncol(geno)*2-1]
-        new_depth <- new_depth[,1:ncol(geno)*2]
-        new_depth[new_depth<new_depth_temp] <- new_depth_temp[new_depth<new_depth_temp]
-        estimated_cnv <- (estimated_cnv[,1:ncol(geno)*2-1] + estimated_cnv[,1:ncol(geno)*2])/2
-        estimated_deletion <- (estimated_deletion[,1:ncol(geno)*2-1] + estimated_deletion[,1:ncol(geno)*2])/2
+        if(sum(is_ref)>0){
+          set1 <- which(!is_ref2)*2-1
+          set2 <- set1 +1
+        } else{
+          set1 <-1:ncol(geno)*2-1
+          set2 <- set1 +1
 
-        estimated_deletion[estimated_deletion>0] <- 1
-      }
+        }
 
-      if(overwrite_call){
         if(hetero){
-          replaces <- which((geno_imputed[!is.na(geno)] != geno[!is.na(geno)]) |
-                              (is.na(geno_imputed[!is.na(geno)]) ))
-          reper <- geno[!is.na(geno)][replaces]
+          geno_imputed1 <- geno_imputed
+          new_depth1 <- new_depth
+          estimated_cnv1 <- estimated_cnv
+          estimated_deletion1 <- estimated_deletion
+          geno_imputed <- (geno_imputed[,set1] + geno_imputed[,set2])/2
+          new_depth_temp <- new_depth[,set1]
+          new_depth <- new_depth[,set2]
+          new_depth[new_depth<new_depth_temp] <- new_depth_temp[new_depth<new_depth_temp]
+          estimated_cnv <- (estimated_cnv[,set1] + estimated_cnv[,set2])/2
+          estimated_deletion <- (estimated_deletion[,set1] + estimated_deletion[,set2])/2
+
+          estimated_deletion[estimated_deletion>0] <- 1
+        }
+
+        if(overwrite_call){
+          if(hetero){
+            replaces <- which((geno_imputed[!is.na(geno[,!is_ref2])] != geno[,!is_ref2][!is.na(geno[,!is_ref2])]) |
+                                (is.na(geno_imputed[!is.na(geno[,!is_ref2])]) ))
+            reper <- geno[!is.na(geno)][replaces]
+            reper[reper==1] <- 0
+            geno_imputed1[,set1][replaces] <- reper
+            reper <- geno[!is.na(geno)][replaces]
+            reper[reper==1] <- 2
+            geno_imputed1[,set2][replaces] <- reper
+          }
+
+          if(hetero){
+            to_replace <- (!is.na(geno) & depth >= overwrite_call_min_depth)[,!is_ref2]
+            geno_imputed[to_replace] <- geno[,!is_ref2][to_replace]
+          } else{
+            to_replace <- (!is.na(geno) & depth >= overwrite_call_min_depth)[,!is_ref]
+            geno_imputed[to_replace] <- geno[,!is_ref][to_replace]
+          }
+
+        }
+        if(overwrite_na & !hetero){
+          to_replace <- is.na(geno_imputed) & !is.na(geno[,!is_ref]) & depth[,!is_ref] >= overwrite_na_min_depth
+          geno_imputed[to_replace] <- geno[,!is_ref][to_replace]
+        } else if(overwrite_na & hetero){
+          replaces <- which(is.na(geno_imputed[!is.na(geno[,!is_ref2])]))
+          reper <- geno[,!is_ref2][!is.na(geno[,!is_ref2])][replaces]
           reper[reper==1] <- 0
-          geno_imputed1[,1:ncol(geno)*2-1][replaces] <- reper
-          reper <- geno[!is.na(geno)][replaces]
+          geno_imputed1[,set1][replaces] <- reper
+          reper <- geno[,!is_ref2][!is.na(geno[,!is_ref2])][replaces]
           reper[reper==1] <- 2
-          geno_imputed1[,1:ncol(geno)*2][replaces] <- reper
+          geno_imputed1[,set2][replaces] <- reper
+
+
+          geno_imputed[!is.na(geno[,!is_ref2])] <- geno[,!is_ref2][!is.na(geno[,!is_ref2])]
         }
 
-        to_replace <- !is.na(geno) & depth >= overwrite_call_min_depth
-        geno_imputed[to_replace] <- geno[to_replace]
-      }
-      if(overwrite_na & !hetero){
-        to_replace <- is.na(geno_imputed) & !is.na(geno[,!is_ref]) & depth[,!is_ref] >= overwrite_na_min_depth
-        geno_imputed[to_replace] <- geno[,!is_ref][to_replace]
-      } else if(overwrite_na & hetero){
-        replaces <- which(is.na(geno_imputed[!is.na(geno)]))
-        reper <- geno[!is.na(geno)][replaces]
-        reper[reper==1] <- 0
-        geno_imputed1[,1:ncol(geno)*2-1][replaces] <- reper
-        reper <- geno[!is.na(geno)][replaces]
-        reper[reper==1] <- 2
-        geno_imputed1[,1:ncol(geno)*2][replaces] <- reper
 
-
-        geno_imputed[!is.na(geno)] <- geno[!is.na(geno)]
-      }
-
-
-    } else{
-      geno_imputed <- geno
-      new_depth <- estimated_cnv <- estimated_deletion <- hb_depth <- matrix(0, nrow=nrow(geno), ncol=ncol(geno))
-    }
-
-    if(hetero){
-      cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed1))*100, digits=2), "% of the markers were obtained"))
-    } else{
-      cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed))*100, digits=2), "% of the markers were obtained"))
-    }
-
-    ### Quality filter for low imputing rates / low read depth
-
-    if(quali_filter){
-      quali_filter1 <- which(rowMeans(!is.na(geno_imputed))<max_na)
-      quali_filter2 <- which( (rowMeans(new_depth) / rowMeans(hb_depth)) < (min_depth*mean_depth))
-      quali_filter3 <- sort(unique(c(quali_filter1, quali_filter2)))
-      if(length(quali_filter3)>0){
-        geno_imputed <- geno_imputed[-quali_filter3,]
-        estimated_deletion <- estimated_deletion[-quali_filter3,]
-        estimated_cnv <- estimated_cnv[-quali_filter3,]
-        posi <- posi[-quali_filter3]
-        hb_depth <- hb_depth[-quali_filter3,]
-        new_depth <- new_depth[-quali_filter3,]
-        allele <- allele[-quali_filter3,]
-        snpname <- snpname[-quali_filter3]
-        ref <- ref[-quali_filter3]
-        alt <- alt[-quali_filter3]
-        depth <- depth[-quali_filter3]
-      }
-
-    }
-
-    ####################################
-    ######## CNV - Calling #############
-    ####################################
-
-    if(estimate_sv){
-      cnv_window <- sv_window
-      cnv_cutoff <- sv_cut1
-      del_cutoff <- sv_cut2
-
-      estimated_depth <- new_depth / hb_depth / mean_depth
-      per_marker_depth <- rowMeans(estimated_depth)
-      population_mean <- stats::ksmooth(as.numeric(posi), per_marker_depth, bandwidth = cnv_window, x.points = as.numeric(posi))
-      for(row in 1:ncol(estimated_cnv)){
-        activ_depth <- stats::ksmooth(as.numeric(posi), estimated_depth[,row], bandwidth = cnv_window, x.points = as.numeric(posi))
-        estimated_cnv[,row] <- (activ_depth$y/population_mean$y)>cnv_cutoff
-        estimated_deletion[,row] <- (activ_depth$y/population_mean$y)<del_cutoff
-      }
-
-    }
-
-
-    if(use_del){
-      DEL <- rowSums(estimated_deletion)
-      adddel <- which(DEL>(del_freq*ncol(geno)))
-    } else{
-      adddel <- NULL
-    }
-    if(use_cnv){
-      if(!estimate_cnv){
-        CNV <- rowSums(estimated_cnv)
       } else{
-        CNV <- rowSums(estimated_cnv>cnv_min)
-      }
-
-      addcnv <- which(CNV>(cnv_freq*ncol(geno)))
-    } else{
-      addcnv <- NULL
-    }
-
-    map <- rbind(cbind(snpname, as.numeric(posi)) ,
-                 cbind(paste0(snpname, "_DEL")[adddel], as.numeric(posi)[adddel] ),
-                 cbind( paste0(snpname, "_CNV")[addcnv],  as.numeric(posi)[addcnv] ))
-
-    ref <- c(ref, rep("A", length(adddel)+ length(addcnv)))
-    alt <- c(alt, rep("C", length(adddel)+ length(addcnv)))
-
-    if(hetero){
-      geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,]*2, (estimated_cnv[addcnv,])*2)
-    } else{
-      geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,], (estimated_cnv[addcnv,]))
-    }
-
-
-    order <- sort(as.numeric(map[,2]), index.return=TRUE)$ix
-    map <- map[order,]
-    ref <- ref[order]
-    alt <- alt[order]
-    geno_imputed <- geno_imputed[order,]
-
-    # Just technical stuff to avoid to markers on the same bp
-    while(sum(diff(as.numeric(map[,2]))==0)>0){
-      up <- which(diff(as.numeric(map[,2]))==0)+1
-      map[up,2] <- as.numeric(map[up,2])+1
-    }
-
-    #######################################
-    ### Write input-vcf-file for BEAGLE ###
-    #######################################
-
-
-    if(hetero){
-      haplo <- geno_imputed1
-    } else{
-      haplo <- geno_imputed[,sort(rep(1:sum(!is_ref),2))]
-
-    }
-
-
-    if(hetero){
-      haplo[haplo==2] <- 1
-    }
-
-    haplo[is.na(haplo)] <- "."
-
-    vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], "/", haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
-
-
-    options(scipen=999)
-    vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno)
-    vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[!is_ref]),vcfgenofull)
-
-    headerfile <- rbind(
-      "##fileformat=VCFv4.2",
-      gsub("-", "", paste0("##filedate=",  Sys.Date())),
-      paste0("##source='HBimpute_v0.0'"),
-      "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
-    )
-
-    utils::write.table(headerfile, file=path_prebeagle2, quote=FALSE, col.names = FALSE, row.names = FALSE)
-    utils::write.table(vcfgenofull, file=path_prebeagle2, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
-
-    #####################################
-    ##### BEAGLE Imputation #############
-    #####################################
-
-
-    if(sum(is_ref)>0){
-      if(ref_beagle){
-        ref_path <- paste0(ref_temp, ".vcf.gz")
-      } else{
-        ref_path <- path_prebeagle4
-      }
-
-      beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle2," out=",out," nthreads=", beagle_core," ref=", ref_path, " impute=false")
-      system(beagle_commandline)
-    } else{
-      beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle2," out=",out," nthreads=", beagle_core)
-      system(beagle_commandline)
-    }
-
-
-    #####################################################################
-    ##### Reference panel (currently mostly experimental testing!) ######
-    #####################################################################
-
-    if(length(ref_panel)>0){
-
-      ## Written only for heterozygous lines!
-
-
-
-      data_panel <- vcfR::read.vcfR(paste0(out, ".vcf.gz"))
-
-      if(FALSE){
-        data_panel1 <- vcfR::read.vcfR("chromo7_3vcf.vcf.gz")
-        k1 <- which(duplicated(c(data_panel@fix[,2], data_panel1@fix[,2]))[-(1:length(data_panel@fix[,2]))])
-
-        data_panel1@gt <- data_panel1@gt[k1,]
-        data_panel1@fix <- data_panel1@fix[k1,]
-
-      }
-
-
-      data_ref <- vcfR::read.vcfR(ref_panel)
-
-      g1_ref <- substr(data_ref@gt[,-1], start=1, stop=1)
-      g2_ref <- substr(data_ref@gt[,-1], start=3, stop=3)
-      storage.mode(g1_ref) <- "integer"
-      storage.mode(g2_ref) <- "integer"
-
-
-
-      g1_ref  <- g1_ref*2
-      g2_ref <- g2_ref*2
-
-      g1_panel <- substr(data_panel@gt[,-1], start=1, stop=1)
-      g2_panel <- substr(data_panel@gt[,-1], start=3, stop=3)
-      storage.mode(g1_panel) <- "integer"
-      storage.mode(g2_panel) <- "integer"
-
-
-
-
-      loc_panel <- as.numeric(data_panel@fix[,2])
-
-      ref_overlap <- duplicated(c( loc_panel, as.numeric(data_ref@fix[,2])))[-(1:length(loc_panel))]
-      panel_overlap <- duplicated(c( as.numeric(data_ref@fix[,2]), loc_panel))[-(1:nrow(data_ref))]
-
-      switch_coding <- which(data_panel@fix[panel_overlap,4] != data_ref@fix[ref_overlap,4])
-
-      g1_panel[switch_coding,] <- 1- g1_panel[switch_coding,]
-      g2_panel[switch_coding,] <- 1- g2_panel[switch_coding,]
-      data_panel@fix[switch_coding,4:5] <- data_panel@fix[switch_coding,5:4]
-
-      g1_panel  <- g1_panel*2
-      g2_panel <- g2_panel*2
-      geno <- (g1_panel + g2_panel)/2
-
-      haplo_panel <- cbind(g1_panel, g2_panel)
-      haplo_panel <- haplo_panel[,sort(rep(1:ncol(g1_panel),2))+ c(0, ncol(g1_panel))]
-
-
-      dhm_ref <- cbind(haplo_panel[panel_overlap,], g1_ref[ref_overlap,], g2_ref[ref_overlap,])
-
-      blocklist_ref <- HaploBlocker::block_calculation(dhm_ref, bp=loc_panel[panel_overlap],
-                                                       window_size=window_size,
-                                                       target_coverage=target_coverage,
-                                                       min_majorblock = min_majorblock)
-
-      full_panel <- matrix(NA, ncol=ncol(haplo_panel), nrow=nrow(g1_ref))
-
-      full_panel[ref_overlap,] <- haplo_panel[panel_overlap,]
-      full_panel <- cbind(full_panel, g1_ref, g2_ref)
-      full_depth <- !is.na(full_panel)
-
-      storage.mode(full_depth) <- "integer"
-
-      t <- HaploBlocker::coverage_test(blocklist_ref)
-      se <- HaploBlocker::blocklist_startend(blocklist_ref, type="bp")
-      t1 <- round(mean(t)*100, digits=2)
-      le <- round(mean(se[,2]-se[,1])/1000000, digits=2)
-      cat(paste0("Final haplotype library Reference with ", t1, "% coverage.\n"))
-      cat(paste0("Avg. block length is ", le, " MB\n"))
-      if(t1<80){
-        warning(paste0("Coverage in haplotype library is potentially too low at ", t1, "%"))
-      }
-      if(le < 0.1){
-        warning(paste0("Avg.block length is only ", le, " MB. Potential problems with haplotype library!"))
-      }
-
-      geno_imputed <- matrix(NA, nrow=nrow(g1_ref), ncol=ncol(geno)*2)
-      new_depth <- estimated_cnv <- estimated_deletion <- matrix(0, nrow=nrow(g1_ref), ncol=ncol(geno)*2)
-
-      loc_ref <- as.numeric(data_ref@fix[,2])
-      mean_depth_ref <- 1
-
-      cat("Start HB imputation:\n")
-      pb <- utils::txtProgressBar(min = 0, max = ncol(g1_panel) * (1 + hetero), style = 3)
-
-      nmax <- ncol(full_panel)
-      for(nr in 1:(ncol(g1_panel)* (1 + hetero))){
-        utils::setTxtProgressBar(pb, nr)
-        se <- HaploBlocker::blocklist_startend(blocklist_ref, type="bp")
-        include <- HaploBlocker::which.block(blocklist_ref, nr)
-        se <- se[which(include>0),]
-        if(length(se)==0){
-          next
-        }
-        end_block  <- sort(unique(c(0,se[,1]-1, se[,2])))[-1]
-        start_block <- c(1, end_block[1:(length(end_block)-1)]+1)
-
-        for(index in 1:length(start_block)){
-          take <- which(((loc_ref>=start_block[index])+(loc_ref<=end_block[index]))==2)
-          indi <- HaploBlocker::which.indi(blocklist_ref, nr, start=start_block[index], end=end_block[index])
-          indi <- indi[indi<=nmax]
-          if(length(indi)==0){
-            indi <- nr
-          }
-          indi <- c(indi, nr, nr, nr, nr)
-          if(length(indi)>0 && length(take)>0){
-            if(hetero){
-              ana <- full_panel[take,indi, drop=FALSE]
-            } else{
-              ana <- geno[take,indi, drop=FALSE]
-            }
-
-            if(hetero){
-              anad <- full_depth[take,indi, drop=FALSE]
-            } else{
-              anad <- depth[take,indi, drop=FALSE]
-            }
-
-            ana[is.na(ana)] <- -999
-
-            zero <- rowSums((ana==0)*anad)
-            two <- rowSums((ana==2)*anad)
-
-            geno_imputed[take,nr][((zero>((two)*min_confi)))*(zero>min_confi)*(1:length(zero))*(zero<10|two<10)] <- 0
-            geno_imputed[take,nr][((min_confi*(zero))<two) * (two>min_confi)* (1:length(two))*(zero<10|two<10)] <- 2
-
-            if(estimate_del){
-              mis <- rowSums((ana==(-999))) - 4 * (ana[,ncol(ana)]==(-999))
-              p_zero <- exp(-mean_depth)
-              total <- length(indi) - 4
-
-              quali_na <- which(stats::pbinom(size = total, prob = p_zero, q=mis) > cutoff & total > 5)
-              estimated_deletion[take,nr][quali_na] <- 1
-            }
-
-            if(estimate_cnv){
-              new_depth[take,nr] <- zero +  two
-              estimated_cnv[take,nr] <- new_depth[take,nr] / length(indi) / mean_depth
-            }
-          }
-        }
-        close(pb)
-
-      }
-
-      if(remove_del && sum(estimated_deletion)>0){
-        geno_imputed[estimated_deletion==1] <- NA
+        geno_imputed <- geno
+        new_depth <- estimated_cnv <- estimated_deletion <- hb_depth <- matrix(0, nrow=nrow(geno), ncol=ncol(geno))
       }
 
       if(hetero){
-        geno_imputed2 <- geno_imputed
-        new_depth2 <- new_depth
-        estimated_cnv2 <- estimated_cnv
-        estimated_deletion2 <- estimated_deletion
-        geno_imputed <- (geno_imputed[,1:ncol(geno)*2-1] + geno_imputed[,1:ncol(geno)*2])/2
-        new_depth_temp <- new_depth[,1:ncol(geno)*2-1]
-        new_depth <- new_depth[,1:ncol(geno)*2]
-        new_depth[new_depth<new_depth_temp] <- new_depth_temp[new_depth<new_depth_temp]
-        estimated_cnv <- (estimated_cnv[,1:ncol(geno)*2-1] + estimated_cnv[,1:ncol(geno)*2])/2
-        estimated_deletion <- (estimated_deletion[,1:ncol(geno)*2-1] + estimated_deletion[,1:ncol(geno)*2])/2
-
-        estimated_deletion[estimated_deletion>0] <- 1
-      }
-
-      if(overwrite_na){
-        if(hetero){
-          replaces <- which(geno_imputed[ref_overlap,][!is.na(geno[panel_overlap,])] != geno[panel_overlap,][!is.na(geno[panel_overlap,])] |
-                              (is.na(geno_imputed[ref_overlap,]) & !is.na(geno[panel_overlap,])))
-          reper <- geno[panel_overlap,][!is.na(geno[panel_overlap,])][replaces]
-          reper[reper==1] <- 0
-          geno_imputed2[ref_overlap,1:ncol(geno)*2-1][replaces] <- reper
-          reper <- geno[panel_overlap,][!is.na(geno[panel_overlap,])][replaces]
-          reper[reper==1] <- 2
-          geno_imputed2[ref_overlap,1:ncol(geno)*2][replaces] <- reper
-        }
-
-        geno_imputed[ref_overlap,][!is.na(geno[panel_overlap,])] <- geno[panel_overlap,][!is.na(geno[panel_overlap,])]
-
-      }
-
-      if(hetero){
-        cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed2))*100, digits=2), "% of the markers were obtained"))
+        cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed1))*100, digits=2), "% of the markers were obtained"))
       } else{
         cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed))*100, digits=2), "% of the markers were obtained"))
       }
 
+      ### Quality filter for low imputing rates / low read depth
 
+      if(quali_filter){
+        quali_filter1 <- which(rowMeans(!is.na(geno_imputed))<max_na)
+        quali_filter2 <- which( (rowMeans(new_depth) / rowMeans(hb_depth)) < (min_depth*mean_depth))
+        quali_filter3 <- sort(unique(c(quali_filter1, quali_filter2)))
+        if(length(quali_filter3)>0){
+          geno_imputed <- geno_imputed[-quali_filter3,]
+          estimated_deletion <- estimated_deletion[-quali_filter3,]
+          estimated_cnv <- estimated_cnv[-quali_filter3,]
+          posi <- posi[-quali_filter3]
+          hb_depth <- hb_depth[-quali_filter3,]
+          new_depth <- new_depth[-quali_filter3,]
+          allele <- allele[-quali_filter3,]
+          snpname <- snpname[-quali_filter3]
+          ref <- ref[-quali_filter3]
+          alt <- alt[-quali_filter3]
+          depth <- depth[-quali_filter3]
+        }
+
+      }
+
+      ####################################
+      ######## CNV - Calling #############
+      ####################################
+
+      if(estimate_sv){
+        cnv_window <- sv_window
+        cnv_cutoff <- sv_cut1
+        del_cutoff <- sv_cut2
+
+        estimated_depth <- new_depth / hb_depth / mean_depth
+        per_marker_depth <- rowMeans(estimated_depth)
+        population_mean <- stats::ksmooth(as.numeric(posi), per_marker_depth, bandwidth = cnv_window, x.points = as.numeric(posi))
+        for(row in 1:ncol(estimated_cnv)){
+          activ_depth <- stats::ksmooth(as.numeric(posi), estimated_depth[,row], bandwidth = cnv_window, x.points = as.numeric(posi))
+          estimated_cnv[,row] <- (activ_depth$y/population_mean$y)>cnv_cutoff
+          estimated_deletion[,row] <- (activ_depth$y/population_mean$y)<del_cutoff
+        }
+
+      }
 
 
       if(use_del){
         DEL <- rowSums(estimated_deletion)
-        adddel <- which(DEL>(del_freq*ncol(geno_imputed)))
+        adddel <- which(DEL>(del_freq*ncol(geno)))
       } else{
         adddel <- NULL
       }
       if(use_cnv){
-        CNV <- rowSums(estimated_cnv>cnv_min)
-        addcnv <- which(CNV>(cnv_freq*ncol(geno_imputed)))
+        if(estimate_sv){
+          CNV <- rowSums(estimated_cnv>cnv_freq)
+        } else{
+          CNV <- rowSums(estimated_cnv>cnv_min)
+        }
+
+        addcnv <- which(CNV>(cnv_freq*ncol(geno)))
       } else{
         addcnv <- NULL
       }
 
-      map <- rbind(cbind(paste0("SNP", 1:nrow(geno_imputed)), as.numeric(loc_ref)) ,
-                   cbind(paste0("SNP", 1:nrow(geno_imputed), "_DEL")[adddel], as.numeric(loc_ref)[adddel] ),
-                   cbind( paste0("SNP", 1:nrow(geno_imputed), "_CNV")[addcnv],  as.numeric(loc_ref)[addcnv] ))
+      map <- rbind(cbind(snpname, as.numeric(posi)) ,
+                   cbind(paste0(snpname, "_DEL")[adddel], as.numeric(posi)[adddel] ),
+                   cbind( paste0(snpname, "_CNV")[addcnv],  as.numeric(posi)[addcnv] ))
 
-      geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,]*2, (estimated_cnv[addcnv,]>cnv_min)*2)
+      ref <- c(ref, rep("A", length(adddel)+ length(addcnv)))
+      alt <- c(alt, rep("C", length(adddel)+ length(addcnv)))
+
+      if(hetero){
+        geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,]*2, (estimated_cnv[addcnv,])*2)
+      } else{
+        geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,], (estimated_cnv[addcnv,]))
+      }
+
 
       order <- sort(as.numeric(map[,2]), index.return=TRUE)$ix
       map <- map[order,]
+      ref <- ref[order]
+      alt <- alt[order]
       geno_imputed <- geno_imputed[order,]
 
       # Just technical stuff to avoid to markers on the same bp
@@ -1301,25 +1085,40 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
       ### Write input-vcf-file for BEAGLE ###
       #######################################
 
-      ref <- data_ref@fix[,4]
-      alt <- data_ref@fix[,5]
+      if(hetero){
+        is_ref_temp <- is_ref[1:(length(is_ref)/2)*2]
+      } else{
+        is_ref_temp <- is_ref
+      }
+
 
       if(hetero){
-        haplo <- geno_imputed2
+        haplo <- geno_imputed[,sort(rep(1:sum(!is_ref_temp),2))]
       } else{
-        haplo <- geno_imputed[,sort(rep(1:ncol(geno),2))]
+        haplo <- geno_imputed[,sort(rep(1:sum(!is_ref),2))]
 
       }
-      haplo[haplo==2] <- 1
-      haplo[is.na(haplo)] <- "."
 
+
+      if(hetero){
+        evens <- 1:(ncol(haplo)/2)*2
+        odds <- evens -1
+        haplo[,evens][haplo[,evens]>0] <- 1
+        haplo[,odds][haplo[,odds]<=1] <- 0
+        haplo[,odds][haplo[,odds]>1] <- 1
+      }
+
+      haplo[is.na(haplo)] <- "."
 
       vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], "/", haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
 
 
       options(scipen=999)
+
+
+
       vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno)
-      vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines),vcfgenofull)
+      vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[!is_ref_temp]),vcfgenofull)
 
       headerfile <- rbind(
         "##fileformat=VCFv4.2",
@@ -1328,27 +1127,320 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
         "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
       )
 
-      utils::write.table(headerfile, file=path_prebeagle3, quote=FALSE, col.names = FALSE, row.names = FALSE)
-      utils::write.table(vcfgenofull, file=path_prebeagle3, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
+      utils::write.table(headerfile, file=path_prebeagle2, quote=FALSE, col.names = FALSE, row.names = FALSE)
+      utils::write.table(vcfgenofull, file=path_prebeagle2, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
 
-      beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle3," out=",paste0(out,"_ref1")," nthreads=", beagle_core)
-      system(beagle_commandline)
+      #####################################
+      ##### BEAGLE Imputation #############
+      #####################################
 
 
+      if(sum(is_ref)>0){
+        if(ref_beagle){
+          ref_path <- paste0(ref_temp, ".vcf.gz")
+        } else{
+          ref_path <- path_prebeagle4
+        }
+
+        beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle2," out=",out," nthreads=", beagle_core," ref=", ref_path, " impute=false")
+        system(beagle_commandline)
+      } else{
+        beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle2," out=",out," nthreads=", beagle_core)
+        system(beagle_commandline)
+      }
+
+
+      #####################################################################
+      ##### Reference panel (currently mostly experimental testing!) ######
+      #####################################################################
+
+      if(length(ref_panel)>0){
+
+        ## Written only for heterozygous lines!
+
+
+
+        data_panel <- vcfR::read.vcfR(paste0(out, ".vcf.gz"))
+
+        if(FALSE){
+          data_panel1 <- vcfR::read.vcfR("chromo7_3vcf.vcf.gz")
+          k1 <- which(duplicated(c(data_panel@fix[,2], data_panel1@fix[,2]))[-(1:length(data_panel@fix[,2]))])
+
+          data_panel1@gt <- data_panel1@gt[k1,]
+          data_panel1@fix <- data_panel1@fix[k1,]
+
+        }
+
+
+        data_ref <- vcfR::read.vcfR(ref_panel)
+
+        g1_ref <- substr(data_ref@gt[,-1], start=1, stop=1)
+        g2_ref <- substr(data_ref@gt[,-1], start=3, stop=3)
+        storage.mode(g1_ref) <- "integer"
+        storage.mode(g2_ref) <- "integer"
+
+
+
+        g1_ref  <- g1_ref*2
+        g2_ref <- g2_ref*2
+
+        g1_panel <- substr(data_panel@gt[,-1], start=1, stop=1)
+        g2_panel <- substr(data_panel@gt[,-1], start=3, stop=3)
+        storage.mode(g1_panel) <- "integer"
+        storage.mode(g2_panel) <- "integer"
+
+
+
+
+        loc_panel <- as.numeric(data_panel@fix[,2])
+
+        ref_overlap <- duplicated(c( loc_panel, as.numeric(data_ref@fix[,2])))[-(1:length(loc_panel))]
+        panel_overlap <- duplicated(c( as.numeric(data_ref@fix[,2]), loc_panel))[-(1:nrow(data_ref))]
+
+        switch_coding <- which(data_panel@fix[panel_overlap,4] != data_ref@fix[ref_overlap,4])
+
+        g1_panel[switch_coding,] <- 1- g1_panel[switch_coding,]
+        g2_panel[switch_coding,] <- 1- g2_panel[switch_coding,]
+        data_panel@fix[switch_coding,4:5] <- data_panel@fix[switch_coding,5:4]
+
+        g1_panel  <- g1_panel*2
+        g2_panel <- g2_panel*2
+        geno <- (g1_panel + g2_panel)/2
+
+        haplo_panel <- cbind(g1_panel, g2_panel)
+        haplo_panel <- haplo_panel[,sort(rep(1:ncol(g1_panel),2))+ c(0, ncol(g1_panel))]
+
+
+        dhm_ref <- cbind(haplo_panel[panel_overlap,], g1_ref[ref_overlap,], g2_ref[ref_overlap,])
+
+        blocklist_ref <- HaploBlocker::block_calculation(dhm_ref, bp=loc_panel[panel_overlap],
+                                                         window_size=window_size,
+                                                         target_coverage=target_coverage,
+                                                         min_majorblock = min_majorblock)
+
+        full_panel <- matrix(NA, ncol=ncol(haplo_panel), nrow=nrow(g1_ref))
+
+        full_panel[ref_overlap,] <- haplo_panel[panel_overlap,]
+        full_panel <- cbind(full_panel, g1_ref, g2_ref)
+        full_depth <- !is.na(full_panel)
+
+        storage.mode(full_depth) <- "integer"
+
+        t <- HaploBlocker::coverage_test(blocklist_ref)
+        se <- HaploBlocker::blocklist_startend(blocklist_ref, type="bp")
+        t1 <- round(mean(t)*100, digits=2)
+        le <- round(mean(se[,2]-se[,1])/1000000, digits=2)
+        cat(paste0("Final haplotype library Reference with ", t1, "% coverage.\n"))
+        cat(paste0("Avg. block length is ", le, " MB\n"))
+        if(t1<80){
+          warning(paste0("Coverage in haplotype library is potentially too low at ", t1, "%"))
+        }
+        if(le < 0.1){
+          warning(paste0("Avg.block length is only ", le, " MB. Potential problems with haplotype library!"))
+        }
+
+        geno_imputed <- matrix(NA, nrow=nrow(g1_ref), ncol=ncol(geno)*2)
+        new_depth <- estimated_cnv <- estimated_deletion <- matrix(0, nrow=nrow(g1_ref), ncol=ncol(geno)*2)
+
+        loc_ref <- as.numeric(data_ref@fix[,2])
+        mean_depth_ref <- 1
+
+        cat("Start HB imputation:\n")
+        pb <- utils::txtProgressBar(min = 0, max = ncol(g1_panel) * (1 + hetero), style = 3)
+
+        nmax <- ncol(full_panel)
+        for(nr in 1:(ncol(g1_panel)* (1 + hetero))){
+          utils::setTxtProgressBar(pb, nr)
+          se <- HaploBlocker::blocklist_startend(blocklist_ref, type="bp")
+          include <- HaploBlocker::which.block(blocklist_ref, nr)
+          se <- se[which(include>0),]
+          if(length(se)==0){
+            next
+          }
+          end_block  <- sort(unique(c(0,se[,1]-1, se[,2])))[-1]
+          start_block <- c(1, end_block[1:(length(end_block)-1)]+1)
+
+          for(index in 1:length(start_block)){
+            take <- which(((loc_ref>=start_block[index])+(loc_ref<=end_block[index]))==2)
+            indi <- HaploBlocker::which.indi(blocklist_ref, nr, start=start_block[index], end=end_block[index])
+            indi <- indi[indi<=nmax]
+            if(length(indi)==0){
+              indi <- nr
+            }
+            if(length(indi)>1){
+              indi <- c(indi, nr, nr, nr, nr)
+            }
+
+            if(length(indi)>0 && length(take)>0){
+              if(hetero){
+                ana <- full_panel[take,indi, drop=FALSE]
+              } else{
+                ana <- geno[take,indi, drop=FALSE]
+              }
+
+              if(hetero){
+                anad <- full_depth[take,indi, drop=FALSE]
+              } else{
+                anad <- depth[take,indi, drop=FALSE]
+              }
+
+              ana[is.na(ana)] <- -999
+
+              zero <- rowSums((ana==0)*anad)
+              two <- rowSums((ana==2)*anad)
+
+              geno_imputed[take,nr][((zero>((two)*min_confi)))*(zero>min_confi)*(1:length(zero))*(zero<10|two<10)] <- 0
+              geno_imputed[take,nr][((min_confi*(zero))<two) * (two>min_confi)* (1:length(two))*(zero<10|two<10)] <- 2
+
+              if(estimate_del){
+                mis <- rowSums((ana==(-999))) - 4 * (ana[,ncol(ana)]==(-999))
+                p_zero <- exp(-mean_depth)
+                total <- length(indi) - 4
+
+                quali_na <- which(stats::pbinom(size = total, prob = p_zero, q=mis) > cutoff & total > 5)
+                estimated_deletion[take,nr][quali_na] <- 1
+              }
+
+              if(estimate_cnv){
+                new_depth[take,nr] <- zero +  two
+                estimated_cnv[take,nr] <- new_depth[take,nr] / length(indi) / mean_depth
+              }
+            }
+          }
+          close(pb)
+
+        }
+
+        if(remove_del && sum(estimated_deletion)>0){
+          geno_imputed[estimated_deletion==1] <- NA
+        }
+
+        if(hetero){
+          geno_imputed2 <- geno_imputed
+          new_depth2 <- new_depth
+          estimated_cnv2 <- estimated_cnv
+          estimated_deletion2 <- estimated_deletion
+          geno_imputed <- (geno_imputed[,1:ncol(geno)*2-1] + geno_imputed[,1:ncol(geno)*2])/2
+          new_depth_temp <- new_depth[,1:ncol(geno)*2-1]
+          new_depth <- new_depth[,1:ncol(geno)*2]
+          new_depth[new_depth<new_depth_temp] <- new_depth_temp[new_depth<new_depth_temp]
+          estimated_cnv <- (estimated_cnv[,1:ncol(geno)*2-1] + estimated_cnv[,1:ncol(geno)*2])/2
+          estimated_deletion <- (estimated_deletion[,1:ncol(geno)*2-1] + estimated_deletion[,1:ncol(geno)*2])/2
+
+          estimated_deletion[estimated_deletion>0] <- 1
+        }
+
+        if(overwrite_na){
+          if(hetero){
+            replaces <- which(geno_imputed[ref_overlap,][!is.na(geno[panel_overlap,])] != geno[panel_overlap,][!is.na(geno[panel_overlap,])] |
+                                (is.na(geno_imputed[ref_overlap,]) & !is.na(geno[panel_overlap,])))
+            reper <- geno[panel_overlap,][!is.na(geno[panel_overlap,])][replaces]
+            reper[reper==1] <- 0
+            geno_imputed2[ref_overlap,1:ncol(geno)*2-1][replaces] <- reper
+            reper <- geno[panel_overlap,][!is.na(geno[panel_overlap,])][replaces]
+            reper[reper==1] <- 2
+            geno_imputed2[ref_overlap,1:ncol(geno)*2][replaces] <- reper
+          }
+
+          geno_imputed[ref_overlap,][!is.na(geno[panel_overlap,])] <- geno[panel_overlap,][!is.na(geno[panel_overlap,])]
+
+        }
+
+        if(hetero){
+          cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed2))*100, digits=2), "% of the markers were obtained"))
+        } else{
+          cat(paste0("Genotype calls for ", round(mean(!is.na(geno_imputed))*100, digits=2), "% of the markers were obtained"))
+        }
+
+
+
+
+        if(use_del){
+          DEL <- rowSums(estimated_deletion)
+          adddel <- which(DEL>(del_freq*ncol(geno_imputed)))
+        } else{
+          adddel <- NULL
+        }
+        if(use_cnv){
+          CNV <- rowSums(estimated_cnv>cnv_min)
+          addcnv <- which(CNV>(cnv_freq*ncol(geno_imputed)))
+        } else{
+          addcnv <- NULL
+        }
+
+        map <- rbind(cbind(paste0("SNP", 1:nrow(geno_imputed)), as.numeric(loc_ref)) ,
+                     cbind(paste0("SNP", 1:nrow(geno_imputed), "_DEL")[adddel], as.numeric(loc_ref)[adddel] ),
+                     cbind( paste0("SNP", 1:nrow(geno_imputed), "_CNV")[addcnv],  as.numeric(loc_ref)[addcnv] ))
+
+        geno_imputed <- rbind(geno_imputed, estimated_deletion[adddel,]*2, (estimated_cnv[addcnv,]>cnv_min)*2)
+
+        order <- sort(as.numeric(map[,2]), index.return=TRUE)$ix
+        map <- map[order,]
+        geno_imputed <- geno_imputed[order,]
+
+        # Just technical stuff to avoid to markers on the same bp
+        while(sum(diff(as.numeric(map[,2]))==0)>0){
+          up <- which(diff(as.numeric(map[,2]))==0)+1
+          map[up,2] <- as.numeric(map[up,2])+1
+        }
+
+        #######################################
+        ### Write input-vcf-file for BEAGLE ###
+        #######################################
+
+        ref <- data_ref@fix[,4]
+        alt <- data_ref@fix[,5]
+
+        if(hetero){
+          haplo <- geno_imputed2
+        } else{
+          haplo <- geno_imputed[,sort(rep(1:ncol(geno),2))]
+
+        }
+        haplo[haplo==2] <- 1
+        haplo[is.na(haplo)] <- "."
+
+
+        vcfgeno <- matrix(paste0(haplo[,(1:(ncol(haplo)/2))*2], "/", haplo[,(1:(ncol(haplo)/2))*2-1]), ncol=ncol(haplo)/2)
+
+
+        options(scipen=999)
+        vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno)
+        vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines),vcfgenofull)
+
+        headerfile <- rbind(
+          "##fileformat=VCFv4.2",
+          gsub("-", "", paste0("##filedate=",  Sys.Date())),
+          paste0("##source='HBimpute_v0.0'"),
+          "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
+        )
+
+        utils::write.table(headerfile, file=path_prebeagle3, quote=FALSE, col.names = FALSE, row.names = FALSE)
+        utils::write.table(vcfgenofull, file=path_prebeagle3, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
+
+        beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne," gt=",path_prebeagle3," out=",paste0(out,"_ref1")," nthreads=", beagle_core)
+        system(beagle_commandline)
+
+
+      }
+
+
+      if(extended_output){
+        save(file=paste0(out, ".RData"), list=c("geno_imputed", "new_depth", "estimated_cnv", "estimated_deletion", "hb_depth"))
+      }
+
+      if(log != FALSE){
+        sink(zz, append = TRUE, type = c("message"))
+        warnings()
+        sink(NULL)
+        sink(NULL, type=c("message"))
+      }
     }
 
 
-    if(extended_output){
-      save(file=paste0(out, ".RData"), list=c("geno_imputed", "new_depth", "estimated_cnv", "estimated_deletion", "hb_depth"))
-    }
 
-    if(log != FALSE){
-      sink(zz, append = TRUE, type = c("message"))
-      warnings()
-      sink(NULL)
-      sink(NULL, type=c("message"))
-    }
   }
+
 
 
 }
