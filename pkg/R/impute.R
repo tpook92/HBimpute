@@ -117,12 +117,16 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
                    early_remove = FALSE,
                    node_min_early = 2,
                    share_called = 0,
-                   remove_lines = NULL
+                   remove_lines = NULL,
+                   hb_sets = NULL
                    ){
+
+
   {
 
 
     options("scipen"=999)
+
 
 
     if(length(min_depth)==0){
@@ -221,9 +225,9 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
       path_prebeagle3 <- paste0(out,"_temp3.vcf")
       path_prebeagle4 <- paste0(out,"_temp4.vcf")
 
-      if(length(vcf)>0){
+      ref_beagle <- FALSE
 
-        ref_beagle <- FALSE
+      if(length(vcf)>0){
 
         take <- take_ref <- which(data@fix[,1]==chromo)
         if(length(vcf_ref)>0){
@@ -424,16 +428,27 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
           }
         }
 
+      } else{
+
+        snpname <- paste0("SNP", 1:nrow(geno))
+        if(length(allele)==0){
+          allele <- matrix(c("A", "C"), byrow=TRUE, ncol=2, nrow=nrow(geno))
+        }
+        is_ref <- rep(FALSE, ncol(geno))
       }
 
       if(hetero){
-        is_ref2
-        is_ref <- is_ref[sort(rep(1:length(is_ref),2))]
+        is_ref2 <- is_ref[sort(rep(1:length(is_ref),2))]
       }
 
       if(length(lines)==0){
         lines <- paste0("ID_", 1:ncol(geno))
-        colnames(geno) <- colnames(haplo1) <- colnames(haplo2) <- lines
+        if(length(vcf)>0){
+          colnames(geno) <- colnames(haplo1) <- colnames(haplo2) <- lines
+        } else{
+          colnames(geno) <-  lines
+        }
+
       }
 
       ###########################################################
@@ -536,6 +551,11 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
       if(length(chromo_set)>1){
         hb_data <- hb_store
       }
+
+      if(length(hb_sets)==0){
+        hb_sets <- list(1:sum(!is_ref))
+      }
+
       if(length(hb_data)<=1){
 
         if(length(hb_data)==1){
@@ -616,33 +636,79 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
 
 
 
-          vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,panel_indi])
-          vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[panel_indi]),vcfgenofull)
+          for(index5 in 1:length(hb_sets)){
 
-          headerfile <- rbind(
-            "##fileformat=VCFv4.2",
-            gsub("-", "", paste0("##filedate=",  Sys.Date())),
-            paste0("##source='HBimpute_v0.0'"),
-            "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
-          )
-
-          utils::write.table(headerfile, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE)
-          utils::write.table(vcfgenofull, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
-
-          if(sum(is_ref)>0){
-            if(ref_beagle){
-              ref_path <- paste0(ref_temp, ".vcf.gz")
+            if(length(hb_sets)>1){
+              out_temp1 <- paste0(out_temp, "set_", index5)
             } else{
-              ref_path <- path_prebeagle4
+              out_temp1 <- out_temp
             }
-            beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," ref=", ref_path ," nthreads=", beagle_core)
-          } else{
-            beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp," nthreads=", beagle_core)
+            vcfgenofull <- cbind(chromo, map[,2], map[,1], ref, alt, ".", "PASS", ".", "GT", vcfgeno[,panel_indi][,hb_sets[[index5]]])
+            vcfgenofull <- rbind(c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", lines[panel_indi][hb_sets[[index5]]]),vcfgenofull)
+
+            headerfile <- rbind(
+              "##fileformat=VCFv4.2",
+              gsub("-", "", paste0("##filedate=",  Sys.Date())),
+              paste0("##source='HBimpute_v0.0'"),
+              "##FORMAT=<ID=GT,Number=1,Type=String,Description='Genotype'>"
+            )
+
+
+            utils::write.table(headerfile, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE)
+            utils::write.table(vcfgenofull, file=path_prebeagle1, quote=FALSE, col.names = FALSE, row.names = FALSE, append = TRUE, sep="\t")
+
+            if(sum(is_ref)>0){
+              if(ref_beagle){
+                ref_path <- paste0(ref_temp, ".vcf.gz")
+              } else{
+                ref_path <- path_prebeagle4
+              }
+              beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp1," ref=", ref_path ," nthreads=", beagle_core)
+            } else{
+              beagle_commandline <- paste0("java -jar ", path_beaglejar," ne=", beagle_ne, " gt=",path_prebeagle1," out=",out_temp1," nthreads=", beagle_core)
+            }
+
+            system(beagle_commandline)
           }
 
-          system(beagle_commandline)
 
-          data_temp <- vcfR::read.vcfR(paste0(out_temp,".vcf.gz"))
+
+          if(length(hb_sets)==1){
+            data_temp <- vcfR::read.vcfR(paste0(out_temp,".vcf.gz"))
+          } else{
+
+            temps <- list()
+
+            for(index5 in 1:length(hb_sets)){
+
+              if(length(hb_sets)>1){
+                out_temp1 <- paste0(out_temp, "set_", index5)
+              } else{
+                out_temp1 <- out_temp
+              }
+
+              temps[[index5]] <- vcfR::read.vcfR(paste0(out_temp1,".vcf.gz"))
+            }
+
+            data_temp <- temps[[1]]
+
+            for(index5 in 2:length(hb_sets)){
+              data_temp@gt <- cbind(data_temp@gt, temps[[index5]]@gt[,-1])
+            }
+
+            order <- unlist(hb_sets)
+
+            reverse_order <- numeric(length(order))
+            for(index5 in 1:length(order)){
+              reverse_order[index5] <- which(order==index5)
+            }
+
+            data_temp@gt <- data_temp@gt[,c(1, reverse_order+1)]
+
+          }
+
+
+
           if(sum(is_ref)>0){
             data_temp_ref <-vcfR::read.vcfR(ref_path)
 
@@ -682,6 +748,8 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
           stop("No map file for hb_data file provided!")
         }
       }
+
+
 
       ###########################################################
       ########################## HBimpute step ##################
@@ -746,6 +814,7 @@ impute <- function(vcf=NULL, vcf_ref=NULL, vcf_RData=NULL, vcf_ref_RData = NULL,
                                                      window_size=window_size,
                                                      target_coverage=target_coverage,
                                                      min_majorblock = min_majorblock,
+
                                                      weighting_length = 2,
                                                      early_remove = early_remove,
                                                      node_min_early = node_min_early)

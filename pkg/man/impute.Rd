@@ -60,7 +60,8 @@ impute(
   early_remove = FALSE,
   node_min_early = 2,
   share_called = 0,
-  remove_lines = NULL
+  remove_lines = NULL,
+  hb_sets = NULL
 )
 }
 \arguments{

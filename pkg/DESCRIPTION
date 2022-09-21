@@ -1,7 +1,7 @@
 Package: HBimpute
 Type: Package
 Title: HaploBlocker imputation
-Version: 0.2.29
+Version: 0.2.32
 Author: Torsten Pook
 Maintainer: Torsten Pook <torsten.pook@uni-goettingen.de>
 Description: Imputation of sequence data
